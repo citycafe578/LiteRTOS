@@ -38,7 +38,6 @@ extern "C" {
     #define portBYTE_ALIGNMENT 1
     #define tskIDLE_PRIORITY   ((UBaseType_t)0U)
 
-    // 修正：去除空白問題與統一變數名 milliseconds
     #define pdMS_TO_TICKS(milliseconds) \
         ((TickType_t)(((uint32_t)(milliseconds) * (uint32_t)configTICK_RATE_HZ) / 1000U))
 
@@ -56,7 +55,7 @@ extern "C" {
     void vTaskDelay(TickType_t ticksToDelay);
     BaseType_t xTaskDelayUntil(
         TickType_t *previousWakeTime,
-        TickType_t *timeIncrement
+        TickType_t timeIncrement
     );
 
     void vPortYield(void);
@@ -71,11 +70,24 @@ extern "C" {
     void vPortExitCritical(void);
     #define taskENTER_CRITICAL() vPortEnterCritical()
     #define taskEXIT_CRITICAL()  vPortExitCritical()
+
+    #define portENTER_CRITICAL()                        \
+        __asm__ __volatile__(                           \
+            "in   __tmp_reg__, __SREG__ \n\t"           \
+            "cli                        \n\t"           \
+            "push __tmp_reg__           \n\t"           \
+            ::: "memory"                                \
+        )
+
+    #define portEXIT_CRITICAL()                         \
+        __asm__ __volatile__(                           \
+            "pop  __tmp_reg__           \n\t"           \
+            "out  __SREG__, __tmp_reg__ \n\t"           \
+            ::: "memory"                                \
+        )
     
     #define LITERTOS_UNSUPPORTED(api) \
         __attribute__((error("LiteRTOS: " api " 不支援，見 docs/COMPAT.md")))
-    #define LITERTOS_NOT_YET(api) \
-        __attribute__((error("LiteRTOS: " api " 尚未實作，見 docs/COMPAT.md")))
 
     BaseType_t xTaskCreate(
         TaskFunction_t taskCode,
@@ -96,9 +108,9 @@ extern "C" {
     UBaseType_t uxTaskPriorityGet(
         const TaskHandle_t task) LITERTOS_UNSUPPORTED("uxTaskPriorityGet");
 
-    void vTaskDelete(TaskHandle_t task) LITERTOS_NOT_YET("vTaskDelete");
-    void vTaskSuspend(TaskHandle_t task) LITERTOS_NOT_YET("vTaskSuspend");
-    void vTaskResume(TaskHandle_t task) LITERTOS_NOT_YET("vTaskResume");
+    void vTaskDelete(TaskHandle_t task);
+    void vTaskSuspend(TaskHandle_t task);
+    void vTaskResume(TaskHandle_t task);
 
 #ifdef __cplusplus
 }

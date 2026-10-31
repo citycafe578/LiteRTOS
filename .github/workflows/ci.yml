@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  host-tests:
+    name: simavr tests (plain + LTO)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain and simavr
+        run: sudo apt-get update && sudo apt-get install -y gcc-avr avr-libc libsimavr-dev libelf-dev
+      - name: Build and run
+        run: make test-all
+
+  compile-examples:
+    name: Compile examples (Arduino Uno)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: arduino/compile-sketches@v1
+        with:
+          fqbn: arduino:avr:uno
+          sketch-paths: |
+            - examples
+          libraries: |
+            - source-path: ./

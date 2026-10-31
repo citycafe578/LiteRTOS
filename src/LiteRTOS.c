@@ -28,9 +28,9 @@ static bool isRunable(const LiteRTOS_TCB *task, TickType_t now){
         case LITERTOS_TASK_READY:
             return true;
         case LITERTOS_TASK_BLOCKED:
-            return false;
-        case LITERTOS_TASK_SUSPENDED:
             return (TickType_t)(now - (task -> delayStart)) >= (task -> delayTicks);
+        case LITERTOS_TASK_SUSPENDED:
+            return false;
         default:
             return false;
     }
@@ -40,9 +40,9 @@ static LiteRTOS_TCB *pickNext(TickType_t now){
     LiteRTOS_TCB *best = NULL;
     UBaseType_t bestInd = 0;
     const UBaseType_t start = (UBaseType_t)(lastRunIndex + 1);
-    for(UBaseType_t i = 0; i < taskCount; i++){
-        UBaseType_t k = (UBaseType_t)(lastRunIndex + i);
-        if(k >= taskCount){
+    for(UBaseType_t n = 0; n < taskCount; n++){
+        UBaseType_t i = (UBaseType_t)(start + n);
+        if(i >= taskCount){
             i = (UBaseType_t)(i - taskCount);
         }
         LiteRTOS_TCB *task = taskList[i];
@@ -64,8 +64,14 @@ static LiteRTOS_TCB *pickNext(TickType_t now){
     return best;
 }
 
+static inline void contextSwitch(StackType_t **saveSP, StackType_t *newSP){
+    __asm__ __volatile__("" ::: "memory");
+    LiteRTOS_portSwitch(saveSP, newSP);
+    __asm__ __volatile__("" ::: "memory");
+}
+
 static void switchToScheduler(void){
-    LiteRTOS_portSwitch(&currentTask -> topOfStack, schedulerSP);
+    contextSwitch(&currentTask -> topOfStack, schedulerSP);
 }
 
 static void blockCurrenFor(TickType_t ticks){
@@ -80,7 +86,7 @@ static void taskEntry(void){
     self -> taskCode(self -> taskParameters);
     self -> state = LITERTOS_TASK_SUSPENDED;
     while(1){
-        LiteRTOS_portSwitch(&self -> topOfStack, schedulerSP);
+        contextSwitch(&self -> topOfStack, schedulerSP);
     }
 }
 
@@ -126,7 +132,7 @@ void vTaskStartScheduler(void){
         }
         next -> state = LITERTOS_TASK_READY;
         currentTask = next;
-        LiteRTOS_portSwitch(&schedulerSP, next -> topOfStack);
+        contextSwitch(&schedulerSP, next -> topOfStack);
         currentTask = NULL;
     }
 }
@@ -178,7 +184,7 @@ BaseType_t xTaskDelayUntil(TickType_t *previousWakeTime, TickType_t timeIncremen
     return shouldDely;
 }
 
-vPortYield(void){
+void vPortYield(void){
     if(currentTask == NULL){
         return;
     }
@@ -198,10 +204,8 @@ UBaseType_t uxTaskGetStackHighWaterMark(TaskHandle_t task){
     if(tcb == NULL){
         return 0;
     }
-    configSTACK_DEPTH_TYPE untouched = 0;
-    while(untouched < tcb -> stackDepth && tcb -> stackBase[untouched] == LITERTOS_STACK_FILL){
-        untouched++;
-    }
+    //  uxTaskGetStackHighWaterMark.s 實作
+    const uint16_t untouched = prvCountUntouchedStack(tcb -> stackBase, (uint16_t)tcb -> stackDepth, LITERTOS_STACK_FILL);
 
     return (untouched > 255)? 255 : (UBaseType_t)untouched;
 }
@@ -223,4 +227,57 @@ void vPortExitCritical(void){
         __asm__ __volatile__("" ::: "memory");
         SREG = criticalSavedSREG;
     }
+}
+
+void vTaskDelete(TaskHandle_t task){
+    if(task == NULL){
+        task = currentTask;
+    }
+    if(task == currentTask){
+        currentTask->state = LITERTOS_TASK_SUSPENDED;
+        switchToScheduler();
+        return;
+    }
+    for(UBaseType_t i = 0; i < taskCount; i++){
+        if(taskList[i] == task){
+            for(UBaseType_t j = i; j + 1 < taskCount; j++){
+                taskList[j] = taskList[j+1];
+            }
+            taskCount--;
+            if(lastRunIndex != 0xFF){
+                if(i < lastRunIndex){
+                    lastRunIndex--;
+                }else if(i == lastRunIndex){
+                    lastRunIndex = (UBaseType_t)(i - 1);
+                }
+            }
+            return;
+        }
+    }
+
+}
+
+void vTaskSuspend(TaskHandle_t task){
+    if(task == NULL){
+        task = currentTask;
+    }
+    if(task == NULL){
+        return;
+    }
+    task->state = LITERTOS_TASK_SUSPENDED;
+
+    if(task == currentTask){
+        switchToScheduler();
+    }
+}
+
+void vTaskResume(TaskHandle_t task){
+    if(task == NULL || task->state != LITERTOS_TASK_SUSPENDED){
+        return;
+    }
+
+    task->delayStart = 0;
+    task->delayTicks = 0;
+    task->state = LITERTOS_TASK_READY;
+
 }

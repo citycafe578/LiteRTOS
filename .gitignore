@@ -1,0 +1,6 @@
+build/
+build-lto/
+.pio/
+test/bench/freertos/_src/
+test/bench/freertos/kernel_min/
+test/bench/freertos/kernel_stock/

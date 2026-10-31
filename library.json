@@ -1,0 +1,32 @@
+{
+  "name": "LiteRTOS",
+  "version": "0.1.0",
+  "description": "Tiny cooperative RTOS for the Arduino Uno (ATmega328P) with FreeRTOS-compatible API names.",
+  "keywords": "rtos, freertos, scheduler, cooperative, avr, uno",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/citycafe578/LiteRTOS.git"
+  },
+  "authors": [
+    {
+      "name": "citycafe578",
+      "url": "https://github.com/citycafe578",
+      "maintainer": true
+    }
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/citycafe578/LiteRTOS",
+  "frameworks": "arduino",
+  "platforms": "atmelavr",
+  "headers": "LiteRTOS.h",
+  "export": {
+    "include": [
+      "src",
+      "examples",
+      "library.json",
+      "library.properties",
+      "LICENSE",
+      "README.md"
+    ]
+  }
+}
