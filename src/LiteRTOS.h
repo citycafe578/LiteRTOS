@@ -87,7 +87,7 @@ extern "C" {
         )
     
     #define LITERTOS_UNSUPPORTED(api) \
-        __attribute__((error("LiteRTOS: " api " 不支援，見 docs/COMPAT.md")))
+        __attribute__((error("LiteRTOS: " api " 不支援")))
 
     BaseType_t xTaskCreate(
         TaskFunction_t taskCode,
