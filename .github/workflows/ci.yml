@@ -20,10 +20,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: arduino/compile-sketches@v1
-        with:
-          fqbn: arduino:avr:uno
-          sketch-paths: |
-            - examples
-          libraries: |
-            - source-path: ./
+      - uses: arduino/setup-arduino-cli@v2
+      - name: Install the AVR core
+        run: |
+          arduino-cli core update-index
+          arduino-cli core install arduino:avr
+      - name: Compile the examples
+        run: |
+          for sketch in examples/*/; do
+            arduino-cli compile --fqbn arduino:avr:uno --library . "$sketch"
+          done
