@@ -104,11 +104,9 @@ void loop() {}
 | Flash | 5432 B | 7766 B |
 | 靜態 RAM（data + bss） | 1386 B | 1758 B |
 | 每個 task 的 TCB | 18 B | 46 B |
-| `taskYIELD` 切換 | 406–437 cycles | 248–256 cycles |
-| 臨界區（進入 + 離開） | 17 cycles | 11 cycles |
 | tick 解析度 | 1 ms | 16 ms（watchdog tick） |
 
-LiteRTOS 在 flash、RAM 與 TCB 都比較小，但**切換比較慢**（約 1.7 倍），因為它用簡單的掃描挑選下一個 task，且每次都經過排程器再切換，而不是直接切換。這是已知的取捨，也是之後的最佳化項目，不是設計目標。FreeRTOS 的預設（非最小）設定更大，`test/bench/report.py` 可以重現包含預設設定的表格。
+LiteRTOS 在 flash、RAM 與 TCB 都比較小。FreeRTOS 的預設（非最小）設定更大，`test/bench/report.py` 可以重現包含預設設定的表格。
 
 重現方式：
 

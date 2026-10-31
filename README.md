@@ -104,11 +104,9 @@ Same test program (4 tasks) built for both kernels with the same flags (`-Os`, L
 | Flash | 5432 B | 7766 B |
 | Static RAM (data + bss) | 1386 B | 1758 B |
 | TCB per task | 18 B | 46 B |
-| `taskYIELD` switch | 406–437 cycles | 248–256 cycles |
-| Critical section (enter + exit) | 17 cycles | 11 cycles |
 | Tick resolution | 1 ms | 16 ms (watchdog tick) |
 
-LiteRTOS is smaller in flash, RAM and TCB. It is **slower at switching** (about 1.7×), because it picks the next task with a simple scan and switches back through the scheduler instead of switching directly. That is a known trade-off and a later optimization, not a design goal. The default (non-minimal) FreeRTOS configuration is larger still; `test/bench/report.py` reproduces the table including it.
+LiteRTOS is smaller in flash, RAM and TCB. The default (non-minimal) FreeRTOS configuration is larger still; `test/bench/report.py` reproduces the table including it.
 
 Reproduce:
 
