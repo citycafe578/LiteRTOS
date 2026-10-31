@@ -4,3 +4,5 @@ build-lto/
 test/bench/freertos/_src/
 test/bench/freertos/kernel_min/
 test/bench/freertos/kernel_stock/
+*.tar.gz
+.vscode/

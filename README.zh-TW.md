@@ -2,8 +2,6 @@
 
 [English](README.md) | [繁體中文](README.zh-TW.md)
 
-文件：[相容性規格](docs/COMPAT.md) · [運作原理](docs/HOW_IT_WORKS.md) · [詳細解說](docs/HOW_IT_WORKS_DETAIL.md)
-
 一個給 Arduino Uno（ATmega328P）用的小型協作式 RTOS，函式名稱與 FreeRTOS 相同。
 
 ## 為什麼做這個
@@ -25,7 +23,7 @@ Arduino Uno 只有 2 KB RAM、32 KB flash。我發現在 Uno 上使用 FreeRTOS 
 * context switch 只保存 avr-gcc ABI 要求的暫存器（r2–r17、r28、r29、SREG）
 * `uxTaskGetStackHighWaterMark` 可用來決定 stack 大小
 * `portENTER_CRITICAL` / `portEXIT_CRITICAL` 為行內組合語言巨集
-* 不提供的 API 會在編譯期報錯並指向相容性規格，而不是默默什麼都不做
+* 不提供的 API 會在編譯期報錯並說明原因，而不是默默什麼都不做
 * 以真正的 AVR 機器碼在 simavr 上測試，一般與 LTO 兩種編譯都跑
 
 ## 狀態
@@ -91,7 +89,7 @@ void loop() {}
 | `taskENTER_CRITICAL()` / `taskEXIT_CRITICAL()` | 臨界區，函式版 |
 | `portENTER_CRITICAL()` / `portEXIT_CRITICAL()` | 臨界區，行內組合語言版；必須在同一個函式內成對使用，中間不能呼叫會阻塞的函式 |
 
-不提供（編譯期錯誤）：`xTaskCreate`、`vTaskDelayUntil`、`vTaskPrioritySet`、`uxTaskPriorityGet`。佇列、semaphore、mutex、軟體 timer、event group 目前都不在 LiteRTOS 的範圍內。完整清單與相容等級見 [docs/COMPAT.md](docs/COMPAT.md)。
+不提供（編譯期錯誤）：`xTaskCreate`、`vTaskDelayUntil`、`vTaskPrioritySet`、`uxTaskPriorityGet`。佇列、semaphore、mutex、軟體 timer、event group 目前都不在 LiteRTOS 的範圍內。
 
 ---
 
@@ -166,10 +164,8 @@ src/                 核心（C）與組合語言函式
 examples/basic/      雙 task 範例
 test/simavr/         模擬器測試
 test/bench/          LiteRTOS 與 FreeRTOS 的 testbench
-docs/                相容性規格與設計解說
 ```
 
-`docs/CODE_EXPLAINED.md` 描述的是較早的 C++ 版本，內容已過時。
 
 ## 授權
 

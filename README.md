@@ -2,8 +2,6 @@
 
 [English](README.md) | [繁體中文](README.zh-TW.md)
 
-Documentation: [Compatibility spec](docs/COMPAT.md) · [How it works](docs/HOW_IT_WORKS.md) · [Detailed walkthrough](docs/HOW_IT_WORKS_DETAIL.md) (Traditional Chinese)
-
 A tiny cooperative RTOS for the Arduino Uno (ATmega328P), using the same function names as FreeRTOS.
 
 ## Why
@@ -25,7 +23,7 @@ The second goal of this project is an experiment: **does replacing some C with a
 * Context switch saves only the registers the avr-gcc ABI requires (r2–r17, r28, r29, SREG)
 * `uxTaskGetStackHighWaterMark` for stack sizing
 * `portENTER_CRITICAL` / `portEXIT_CRITICAL` as inline assembly macros
-* APIs that are not provided fail at compile time with a message pointing to the compatibility spec, instead of silently doing nothing
+* APIs that are not provided fail at compile time with an explanatory message, instead of silently doing nothing
 * Tested as real AVR machine code on simavr, with and without LTO
 
 ## Status
@@ -91,7 +89,7 @@ Notes:
 | `taskENTER_CRITICAL()` / `taskEXIT_CRITICAL()` | Critical section, function version |
 | `portENTER_CRITICAL()` / `portEXIT_CRITICAL()` | Critical section, inline-assembly version; must be paired inside one function and must not span a blocking call |
 
-Not provided (compile-time error): `xTaskCreate`, `vTaskDelayUntil`, `vTaskPrioritySet`, `uxTaskPriorityGet`. Queues, semaphores, mutexes, timers and event groups are not part of LiteRTOS. The full list with compatibility levels is in [docs/COMPAT.md](docs/COMPAT.md).
+Not provided (compile-time error): `xTaskCreate`, `vTaskDelayUntil`, `vTaskPrioritySet`, `uxTaskPriorityGet`. Queues, semaphores, mutexes, timers and event groups are not part of LiteRTOS.
 
 ---
 
@@ -166,10 +164,8 @@ src/                 kernel (C) and the assembly routines
 examples/basic/      two-task example
 test/simavr/         simulator tests
 test/bench/          LiteRTOS vs FreeRTOS testbench
-docs/                compatibility spec and design walkthroughs (Traditional Chinese)
 ```
 
-`docs/CODE_EXPLAINED.md` describes an earlier C++ version and is out of date.
 
 ## License
 
