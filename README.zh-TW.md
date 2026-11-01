@@ -30,7 +30,7 @@ Arduino Uno 只有 2 KB RAM、32 KB flash。我發現在 Uno 上使用 FreeRTOS 
 
 **版本：v0.1.0（早期）**
 
-20 項 simavr 測試在一般與 LTO 編譯下全部通過。**尚未在真正的 Uno 上驗證**，下面和 FreeRTOS 的比較數字來自模擬器，不是來自實機。見[限制](#限制)。
+20 項 simavr 測試在一般與 LTO 編譯下全部通過。已在真正的 Arduino Uno 上驗證。下面組合語言實驗中的時間數字是在模擬器上量的。見[限制](#限制)。
 
 ---
 
@@ -138,7 +138,6 @@ context switch 本身與臨界區巨集本來就是行內組合語言。
 * 還沒有佇列、semaphore、mutex、軟體 timer、event group。
 * tick 來自 `millis()`，中斷被關閉太久時會不準。
 * 只支援 ATmega328P（Arduino Uno）。
-* 尚未在實機上驗證。
 
 ---
 

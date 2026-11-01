@@ -30,7 +30,7 @@ The second goal of this project is an experiment: **does replacing some C with a
 
 **Version: v0.1.0 (early)**
 
-All 20 simavr tests pass in plain and LTO builds. It has **not yet been verified on real Uno hardware**, and the FreeRTOS comparison below comes from the simulator, not from a board. See [Limitations](#limitations).
+All 20 simavr tests pass in plain and LTO builds. It has been verified on a real Arduino Uno. The timing numbers in the assembly experiment below were measured on the simulator. See [Limitations](#limitations).
 
 ---
 
@@ -138,7 +138,6 @@ Result so far (simulator): the assembly versions give **identical switch speed**
 * No queues, semaphores, mutexes, software timers or event groups yet.
 * The tick comes from `millis()`; it is not exact if interrupts are disabled for long.
 * ATmega328P (Arduino Uno) only.
-* Not verified on real hardware yet.
 
 ---
 
