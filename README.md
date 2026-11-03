@@ -18,9 +18,10 @@ The second goal of this project is an experiment: **does replacing some C with a
 * Cooperative scheduler, equivalent to FreeRTOS `configUSE_PREEMPTION = 0`
 * Priorities, with round-robin among tasks of equal priority
 * Static allocation only: no heap, no `malloc`
-* 18-byte TCB (FreeRTOS `StaticTask_t` is 46 bytes on AVR)
+* 19-byte TCB (FreeRTOS `StaticTask_t` is 46 bytes on AVR)
 * 1 ms tick taken from Arduino `millis()`: no timer is used up
 * Context switch saves only the registers the avr-gcc ABI requires (r2–r17, r28, r29, SREG)
+* Task notifications: an interrupt handler can wake a sleeping task with up to 8 event bits (`xTaskNotifyWait` / `xTaskNotifyGiveFromISR`)
 * `uxTaskGetStackHighWaterMark` for stack sizing
 * `portENTER_CRITICAL` / `portEXIT_CRITICAL` as inline assembly macros
 * APIs that are not provided fail at compile time with an explanatory message, instead of silently doing nothing
@@ -30,7 +31,7 @@ The second goal of this project is an experiment: **does replacing some C with a
 
 **Version: v0.1.0 (early)**
 
-All 20 simavr tests pass in plain and LTO builds. It has been verified on a real Arduino Uno. The timing numbers in the assembly experiment below were measured on the simulator. See [Limitations](#limitations).
+All 22 simavr tests pass in plain and LTO builds. It has been verified on a real Arduino Uno. The timing numbers in the assembly experiment below were measured on the simulator. See [Limitations](#limitations).
 
 ---
 
@@ -62,7 +63,7 @@ void setup() {
 void loop() {}
 ```
 
-A complete two-task example is in [`examples/basic`](examples/basic/basic.ino).
+A complete two-task example is in [`examples/basic`](examples/basic/basic.ino). [`examples/notify_demo`](examples/notify_demo/notify_demo.ino) shows two interrupt sources (UART and a button) waking two tasks that control an LED.
 
 Notes:
 
@@ -86,6 +87,8 @@ Notes:
 | `xTaskGetTickCount()` | Current tick count |
 | `xTaskGetCurrentTaskHandle()` | Handle of the running task |
 | `uxTaskGetStackHighWaterMark(task)` | Minimum free stack bytes seen so far (`NULL` means the calling task) |
+| `xTaskNotifyWait(task, &events)` | Sleep until an interrupt or task sends a notification, then read and clear the event bits (`NULL` means the calling task). Waits forever; there is no timeout |
+| `xTaskNotifyGiveFromISR(task, bits)` | OR event bits into a task's notification and wake it if it is waiting |
 | `taskENTER_CRITICAL()` / `taskEXIT_CRITICAL()` | Critical section, function version |
 | `portENTER_CRITICAL()` / `portEXIT_CRITICAL()` | Critical section, inline-assembly version; must be paired inside one function and must not span a blocking call |
 
@@ -100,8 +103,8 @@ Same test program (4 tasks) built for both kernels with the same flags (`-Os`, L
 | | LiteRTOS | FreeRTOS (minimal config) |
 | --- | ---: | ---: |
 | Flash | 5432 B | 7766 B |
-| Static RAM (data + bss) | 1386 B | 1758 B |
-| TCB per task | 18 B | 46 B |
+| Static RAM (data + bss) | 1390 B | 1758 B |
+| TCB per task | 19 B | 46 B |
 | Tick resolution | 1 ms | 16 ms (watchdog tick) |
 
 LiteRTOS is smaller in flash, RAM and TCB. The default (non-minimal) FreeRTOS configuration is larger still; `test/bench/report.py` reproduces the table including it.
@@ -136,6 +139,7 @@ Result so far (simulator): the assembly versions give **identical switch speed**
 * Cooperative only. No preemption, no time slicing.
 * Static task creation only; at most `LITERTOS_MAX_TASKS` (default 4) tasks.
 * No queues, semaphores, mutexes, software timers or event groups yet.
+* Notifications carry one byte (8 event bits), have no timeout, and are simpler than FreeRTOS's `xTaskNotifyWait` (same name, different signature).
 * The tick comes from `millis()`; it is not exact if interrupts are disabled for long.
 * ATmega328P (Arduino Uno) only.
 
@@ -161,6 +165,7 @@ CI runs `make test-all` and compiles the example for an Arduino Uno.
 ```text
 src/                 kernel (C) and the assembly routines
 examples/basic/      two-task example
+examples/notify_demo/  interrupt-driven tasks with notifications
 test/simavr/         simulator tests
 test/bench/          LiteRTOS vs FreeRTOS testbench
 ```

@@ -16,6 +16,7 @@
 #define LITERTOS_TASK_READY     0U
 #define LITERTOS_TASK_BLOCKED   1U
 #define LITERTOS_TASK_SUSPENDED 2U
+#define LITERTOS_TASK_WAITING   3U
 
 struct LiteRTOS_TCB
 {
@@ -32,6 +33,7 @@ struct LiteRTOS_TCB
 
     UBaseType_t priority;
     uint8_t state;
+    uint8_t notifyValue;
 };
 
 typedef struct LiteRTOS_TCB LiteRTOS_TCB;

@@ -18,9 +18,10 @@ Arduino Uno 只有 2 KB RAM、32 KB flash。我發現在 Uno 上使用 FreeRTOS 
 * 協作式排程，等同 FreeRTOS 的 `configUSE_PREEMPTION = 0`
 * 支援優先權，同優先權的 task 輪流執行
 * 只用靜態配置：沒有 heap、沒有 `malloc`
-* TCB 只有 18 byte（FreeRTOS 在 AVR 上的 `StaticTask_t` 是 46 byte）
+* TCB 只有 19 byte（FreeRTOS 在 AVR 上的 `StaticTask_t` 是 46 byte）
 * 1 ms 的 tick 取自 Arduino 的 `millis()`，不佔用任何 timer
 * context switch 只保存 avr-gcc ABI 要求的暫存器（r2–r17、r28、r29、SREG）
+* task 通知：中斷處理函式可以用最多 8 個事件位元叫醒睡眠中的 task（`xTaskNotifyWait` / `xTaskNotifyGiveFromISR`）
 * `uxTaskGetStackHighWaterMark` 可用來決定 stack 大小
 * `portENTER_CRITICAL` / `portEXIT_CRITICAL` 為行內組合語言巨集
 * 不提供的 API 會在編譯期報錯並說明原因，而不是默默什麼都不做
@@ -30,7 +31,7 @@ Arduino Uno 只有 2 KB RAM、32 KB flash。我發現在 Uno 上使用 FreeRTOS 
 
 **版本：v0.1.0（早期）**
 
-20 項 simavr 測試在一般與 LTO 編譯下全部通過。已在真正的 Arduino Uno 上驗證。下面組合語言實驗中的時間數字是在模擬器上量的。見[限制](#限制)。
+22 項 simavr 測試在一般與 LTO 編譯下全部通過。已在真正的 Arduino Uno 上驗證。下面組合語言實驗中的時間數字是在模擬器上量的。見[限制](#限制)。
 
 ---
 
@@ -62,7 +63,7 @@ void setup() {
 void loop() {}
 ```
 
-完整的雙 task 範例在 [`examples/basic`](examples/basic/basic.ino)。
+完整的雙 task 範例在 [`examples/basic`](examples/basic/basic.ino)。[`examples/notify_demo`](examples/notify_demo/notify_demo.ino) 示範兩個中斷來源（UART 與按鈕）叫醒兩個 task 去控制 LED。
 
 注意：
 
@@ -86,6 +87,8 @@ void loop() {}
 | `xTaskGetTickCount()` | 目前的 tick 計數 |
 | `xTaskGetCurrentTaskHandle()` | 執行中 task 的 handle |
 | `uxTaskGetStackHighWaterMark(task)` | 到目前為止 stack 剩餘的最小 byte 數（`NULL` 代表目前的 task） |
+| `xTaskNotifyWait(task, &events)` | 睡到有中斷或其他 task 送來通知，醒來後讀出並清除事件位元（`NULL` 代表目前的 task）。會一直等，沒有逾時 |
+| `xTaskNotifyGiveFromISR(task, bits)` | 把事件位元 OR 進 task 的通知，若它正在等就叫醒它 |
 | `taskENTER_CRITICAL()` / `taskEXIT_CRITICAL()` | 臨界區，函式版 |
 | `portENTER_CRITICAL()` / `portEXIT_CRITICAL()` | 臨界區，行內組合語言版；必須在同一個函式內成對使用，中間不能呼叫會阻塞的函式 |
 
@@ -100,8 +103,8 @@ void loop() {}
 | | LiteRTOS | FreeRTOS（最小設定） |
 | --- | ---: | ---: |
 | Flash | 5432 B | 7766 B |
-| 靜態 RAM（data + bss） | 1386 B | 1758 B |
-| 每個 task 的 TCB | 18 B | 46 B |
+| 靜態 RAM（data + bss） | 1390 B | 1758 B |
+| 每個 task 的 TCB | 19 B | 46 B |
 | tick 解析度 | 1 ms | 16 ms（watchdog tick） |
 
 LiteRTOS 在 flash、RAM 與 TCB 都比較小。FreeRTOS 的預設（非最小）設定更大，`test/bench/report.py` 可以重現包含預設設定的表格。
@@ -136,6 +139,7 @@ context switch 本身與臨界區巨集本來就是行內組合語言。
 * 只有協作式排程，沒有搶佔，也沒有時間片。
 * 只能靜態建立 task，最多 `LITERTOS_MAX_TASKS`（預設 4）個。
 * 還沒有佇列、semaphore、mutex、軟體 timer、event group。
+* 通知只帶一個位元組（8 個事件位元）、沒有逾時，比 FreeRTOS 的 `xTaskNotifyWait` 簡單（名稱相同，簽章不同）。
 * tick 來自 `millis()`，中斷被關閉太久時會不準。
 * 只支援 ATmega328P（Arduino Uno）。
 
@@ -161,6 +165,7 @@ CI 會執行 `make test-all`，並為 Arduino Uno 編譯範例。
 ```text
 src/                 核心（C）與組合語言函式
 examples/basic/      雙 task 範例
+examples/notify_demo/  用通知處理中斷事件的範例
 test/simavr/         模擬器測試
 test/bench/          LiteRTOS 與 FreeRTOS 的 testbench
 ```

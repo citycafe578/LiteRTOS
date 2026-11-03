@@ -22,7 +22,7 @@ ifeq ($(LTO),1)
 CFLAGS  += -flto
 LDFLAGS += -flto
 endif
-TESTS  := 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15
+TESTS  := 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17
 KERNEL := $(BUILD)/LiteRTOS.o $(BUILD)/LiteRTOS_port_avr.o \
           $(BUILD)/PortInitStack.o $(BUILD)/uxTaskGetStackHighWaterMark.o
 

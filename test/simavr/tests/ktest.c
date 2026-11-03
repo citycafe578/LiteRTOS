@@ -355,4 +355,53 @@ int main(void){
     TASK(C,1,tc,0);
     vTaskStartScheduler();
 }
+#elif TEST == 16
+/* notify：等待者沒收到通知前不該跑；收到一次只跑一次；第二次等待要再次阻塞。 */
+static volatile uint16_t runs;
+static TaskHandle_t hw;
+static StaticTask_t w_tcb, g_tcb; static StackType_t w_stack[STACK], g_stack[STACK];
+static void waiter(void *arg){ (void)arg; uint8_t v;
+    for (;;){ xTaskNotifyWait(hw, &v); runs++; }
+}
+static void giver(void *arg){ (void)arg;
+    vTaskDelay(100);
+    const uint16_t before = runs;                 /* 還沒通知：waiter 不該跑過 */
+    xTaskNotifyGiveFromISR(hw, 1);
+    vTaskDelay(100);
+    const uint16_t after1 = runs;                 /* 通知一次：只該跑一次 */
+    vTaskDelay(100);
+    const uint16_t after2 = runs;                 /* 沒有第二次通知：不該再跑 */
+    simPrint("before="); simPrintU(before); simPrint(" after1="); simPrintU(after1);
+    simPrint(" after2="); simPrintU(after2); simPutc('\n');
+    simResult("T16 notify wakes waiter once and re-blocks", before == 0 && after1 == 1 && after2 == 1);
+    simExit();
+}
+int main(void){
+    simInit();
+    hw = xTaskCreateStatic(waiter, "W", STACK, 0, 1, w_stack, &w_tcb);
+    xTaskCreateStatic(giver, "G", STACK, 0, 1, g_stack, &g_tcb);
+    vTaskStartScheduler();
+}
+#elif TEST == 17
+/* notify 的位元要合併（OR）：兩個來源在 waiter 醒來前各送一個位元，waiter 要同時看到兩個。 */
+static volatile uint8_t got; static volatile uint16_t wakes;
+static TaskHandle_t hw;
+static StaticTask_t w_tcb, g_tcb; static StackType_t w_stack[STACK], g_stack[STACK];
+static void waiter(void *arg){ (void)arg; uint8_t v;
+    for (;;){ xTaskNotifyWait(hw, &v); got = v; wakes++; }
+}
+static void giver(void *arg){ (void)arg;
+    vTaskDelay(50);
+    xTaskNotifyGiveFromISR(hw, 0x01);
+    xTaskNotifyGiveFromISR(hw, 0x02);             /* 同一個時間點送兩個不同位元 */
+    vTaskDelay(50);
+    simResult("T17 notify bits are OR-ed together", got == 0x03 && wakes == 1);
+    simExit();
+}
+int main(void){
+    simInit();
+    hw = xTaskCreateStatic(waiter, "W", STACK, 0, 1, w_stack, &w_tcb);
+    xTaskCreateStatic(giver, "G", STACK, 0, 1, g_stack, &g_tcb);
+    vTaskStartScheduler();
+}
 #endif

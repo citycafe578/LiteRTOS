@@ -18,7 +18,7 @@ extern "C" {
     typedef struct LiteRTOS_TCB * TaskHandle_t;
 
     #ifndef LITERTOS_TCB_SIZE
-    #define LITERTOS_TCB_SIZE 18              // AVR TCB size 
+    #define LITERTOS_TCB_SIZE 19              // AVR TCB size 
     #endif
 
     typedef struct {
@@ -111,6 +111,8 @@ extern "C" {
     void vTaskDelete(TaskHandle_t task);
     void vTaskSuspend(TaskHandle_t task);
     void vTaskResume(TaskHandle_t task);
+    void xTaskNotifyWait(TaskHandle_t task, uint8_t *val);
+    void xTaskNotifyGiveFromISR(TaskHandle_t task, uint8_t bitMask);
 
 #ifdef __cplusplus
 }

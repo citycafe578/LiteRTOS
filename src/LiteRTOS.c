@@ -30,6 +30,7 @@ static bool isRunable(const LiteRTOS_TCB *task, TickType_t now){
         case LITERTOS_TASK_BLOCKED:
             return (TickType_t)(now - (task -> delayStart)) >= (task -> delayTicks);
         case LITERTOS_TASK_SUSPENDED:
+        case LITERTOS_TASK_WAITING:
             return false;
         default:
             return false;
@@ -280,4 +281,39 @@ void vTaskResume(TaskHandle_t task){
     task->delayTicks = 0;
     task->state = LITERTOS_TASK_READY;
 
+}
+
+void xTaskNotifyWait(TaskHandle_t task, uint8_t *val){
+    if(task == NULL){
+        task = currentTask;
+    }
+    if(task == NULL){
+        return;
+    }
+    
+    vPortEnterCritical();
+    const bool mustWait = (task->notifyValue == 0);
+    if(mustWait){
+        task->state = LITERTOS_TASK_WAITING;
+    }
+    vPortExitCritical();
+    if(mustWait){
+        switchToScheduler();
+    }
+    vPortEnterCritical();
+    if(val != NULL){
+        *val = task->notifyValue;
+    }
+    task->notifyValue = 0;
+    vPortExitCritical();
+}
+
+void xTaskNotifyGiveFromISR(TaskHandle_t task, uint8_t bitMask){
+    if(task == NULL){
+        return;
+    }
+    task->notifyValue |= bitMask;
+    if(task->state == LITERTOS_TASK_WAITING){
+        task->state = LITERTOS_TASK_READY;
+    }
 }
