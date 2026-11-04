@@ -1,7 +1,7 @@
 {
   "name": "LiteRTOS",
   "version": "0.3.0",
-  "description": "Tiny cooperative RTOS for the Arduino Uno (ATmega328P) with FreeRTOS-compatible API names.",
+  "description": "Tiny cooperative RTOS for the Arduino Uno (ATmega328P) with a FreeRTOS-style API.",
   "keywords": "rtos, freertos, scheduler, cooperative, avr, uno",
   "repository": {
     "type": "git",

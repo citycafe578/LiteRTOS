@@ -2,19 +2,19 @@
 
 [English](README.md) | [繁體中文](README.zh-TW.md)
 
-A tiny cooperative RTOS for the Arduino Uno (ATmega328P), using the same function names as FreeRTOS.
+A tiny cooperative RTOS for the Arduino Uno (ATmega328P), with a FreeRTOS-style API (the same names for the functions it implements).
 
 ## Why
 
 On an Arduino Uno (2 KB RAM, 32 KB flash), FreeRTOS takes a large share of the chip before your own code even starts: a 46-byte TCB per task, an idle task with its own stack, a heap, and a kernel that is built for preemption and many optional features. That leaves little room for the actual program.
 
-LiteRTOS is a smaller kernel for people who already know FreeRTOS. It keeps the API names and the way you write tasks (`for (;;)`, `vTaskDelay`, `xTaskDelayUntil`), but drops everything a small AVR project rarely needs.
+LiteRTOS is a smaller kernel for people who already know FreeRTOS. It keeps the FreeRTOS function names and the way you write tasks (`for (;;)`, `vTaskDelay`, `xTaskDelayUntil`), but drops everything a small AVR project rarely needs.
 
 The second goal of this project is an experiment: **does replacing some C with assembly still pay off with a modern compiler (avr-gcc with LTO, `-Os`)?** Some small, hot routines are written in AVR assembly and measured against the C versions. See [Assembly experiment](#assembly-experiment).
 
 ## Features
 
-* FreeRTOS-identical API names and types (`xTaskCreateStatic`, `vTaskDelay`, `xTaskDelayUntil`, `vTaskSuspend`, `vTaskResume`, `vTaskDelete`, ...)
+* FreeRTOS-style API: the same names and types for the subset it implements (not a drop-in replacement; see Limitations) (`xTaskCreateStatic`, `vTaskDelay`, `xTaskDelayUntil`, `vTaskSuspend`, `vTaskResume`, `vTaskDelete`, ...)
 * Cooperative scheduler, equivalent to FreeRTOS `configUSE_PREEMPTION = 0`
 * Priorities, with round-robin among tasks of equal priority
 * Static allocation only: no heap, no `malloc`
@@ -30,9 +30,9 @@ The second goal of this project is an experiment: **does replacing some C with a
 
 ## Status
 
-**Version: v0.1.0 (early)**
+**Version: v0.3.0** (pre-1.0, the API may still change)
 
-All 28 simavr tests pass in plain and LTO builds. It has been verified on a real Arduino Uno. The timing numbers in the assembly experiment below were measured on the simulator. See [Limitations](#limitations).
+All 28 simavr test cases (in 23 test programs) pass in both plain and LTO builds. It has been verified on a real Arduino Uno. The timing numbers in the assembly experiment below were measured on the simulator. See [Limitations](#limitations).
 
 ---
 
@@ -85,7 +85,7 @@ Notes:
 | `xTaskDelayUntil(&last, inc)` | Block until a fixed period since the previous wake, with no drift |
 | `taskYIELD()` | Let another ready task of equal or higher priority run |
 | `vTaskSuspend(task)` / `vTaskResume(task)` | Suspend or resume a task (`NULL` means the calling task for suspend) |
-| `vTaskDelete(task)` | Remove a task (`NULL` means the calling task) |
+| `vTaskDelete(task)` | Remove another task (`NULL` means the calling task, which is only suspended: its slot is not freed) |
 | `xTaskGetTickCount()` | Current tick count |
 | `xTaskGetCurrentTaskHandle()` | Handle of the running task |
 | `uxTaskGetStackHighWaterMark(task)` | Minimum free stack bytes seen so far (`NULL` means the calling task) |
@@ -109,6 +109,16 @@ Same test program (4 tasks) built for both kernels with the same flags (`-Os`, L
 | Static RAM (data + bss) | 1394 B | 1758 B |
 | TCB per task | 19 B | 46 B |
 | Tick resolution | 1 ms | 16 ms (watchdog tick) |
+
+### Measured on a real Arduino Uno
+
+`test/bench/bench_main.c` run on an Uno (16 MHz, v0.3.0, `-Os` + LTO), cycles per context switch with the other tasks suspended. The simulator gave the same numbers within 1 cycle (123 / 241 / 246 / 251).
+
+| Runnable tasks | 1 | 2 | 3 | 4 |
+| --- | ---: | ---: | ---: | ---: |
+| `taskYIELD` (includes picking the next task) | 124 cyc (7.7 µs) | 241 cyc (15.0 µs) | 246 cyc (15.3 µs) | 252 cyc (15.7 µs) |
+
+`taskENTER_CRITICAL` + `taskEXIT_CRITICAL`: 17 cycles. `xTaskGetTickCount`: 19 cycles. A task that only calls `taskYIELD()` in a loop peaks at 40 bytes of stack, including the 21-byte initial context.
 
 LiteRTOS is smaller in flash, RAM and TCB. The default (non-minimal) FreeRTOS configuration is larger still; `test/bench/report.py` reproduces the table including it.
 
@@ -142,6 +152,7 @@ Result so far (simulator): the assembly versions give **identical switch speed**
 * Cooperative only. No preemption, no time slicing.
 * Static task creation only; at most `LITERTOS_MAX_TASKS` (default 4) tasks.
 * No queues, semaphores, mutexes, software timers or event groups yet.
+* Not a drop-in replacement for FreeRTOS: only the functions listed above exist, and `vTaskRestart` is a LiteRTOS extension. Code that relies on preemption, queues or other FreeRTOS features has to be changed.
 * Notifications carry one byte (8 event bits), have no timeout, and are simpler than FreeRTOS's `xTaskNotifyWait` (same name, different signature).
 * The tick comes from `millis()`; it is not exact if interrupts are disabled for long.
 * ATmega328P (Arduino Uno) only.

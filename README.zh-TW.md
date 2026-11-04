@@ -2,19 +2,19 @@
 
 [English](README.md) | [繁體中文](README.zh-TW.md)
 
-一個給 Arduino Uno（ATmega328P）用的小型協作式 RTOS，函式名稱與 FreeRTOS 相同。
+一個給 Arduino Uno（ATmega328P）用的小型協作式 RTOS，採用 FreeRTOS 風格的 API（實作到的函式名稱與 FreeRTOS 相同）。
 
 ## 為什麼做這個
 
 Arduino Uno 只有 2 KB RAM、32 KB flash。我發現在 Uno 上使用 FreeRTOS 時，我能塞進去的程式碼不多，很大一部分空間在程式開始之前就被 FreeRTOS 佔滿了：每個 task 一個 46 byte 的 TCB、帶自己 stack 的 idle task、heap，以及為搶佔式排程和許多選配功能設計的核心。留給真正程式的空間所剩不多。
 
-所以我設計了 LiteRTOS：給已經會用 FreeRTOS 的人的一個更小的核心。API 名稱與 task 的寫法（`for (;;)`、`vTaskDelay`、`xTaskDelayUntil`）都保持一樣，但拿掉小型 AVR 專案很少用到的東西。
+所以我設計了 LiteRTOS：給已經會用 FreeRTOS 的人的一個更小的核心。FreeRTOS 的函式名稱與 task 的寫法（`for (;;)`、`vTaskDelay`、`xTaskDelayUntil`）都保持一樣，但拿掉小型 AVR 專案很少用到的東西。
 
 這個專案的第二個目的是一項實驗：**在現代編譯環境（avr-gcc、LTO、`-Os`）下，用組合語言取代部分 C，對韌體是否還有更好的效益？** 幾個小而常被執行的函式改用 AVR 組合語言寫，並和 C 版本比較。見[組合語言實驗](#組合語言實驗)。
 
 ## 功能特色
 
-* API 名稱與型別和 FreeRTOS 相同（`xTaskCreateStatic`、`vTaskDelay`、`xTaskDelayUntil`、`vTaskSuspend`、`vTaskResume`、`vTaskDelete` 等）
+* FreeRTOS 風格的 API：實作到的函式，名稱與型別與 FreeRTOS 相同（不是可直接替換 FreeRTOS 的版本，見限制）（`xTaskCreateStatic`、`vTaskDelay`、`xTaskDelayUntil`、`vTaskSuspend`、`vTaskResume`、`vTaskDelete` 等）
 * 協作式排程，等同 FreeRTOS 的 `configUSE_PREEMPTION = 0`
 * 支援優先權，同優先權的 task 輪流執行
 * 只用靜態配置：沒有 heap、沒有 `malloc`
@@ -30,9 +30,9 @@ Arduino Uno 只有 2 KB RAM、32 KB flash。我發現在 Uno 上使用 FreeRTOS 
 
 ## 狀態
 
-**版本：v0.1.0（早期）**
+**版本：v0.3.0**（尚未 1.0，API 仍可能調整）
 
-28 項 simavr 測試在一般與 LTO 編譯下全部通過。已在真正的 Arduino Uno 上驗證。下面組合語言實驗中的時間數字是在模擬器上量的。見[限制](#限制)。
+28 個 simavr 測試案例（分布在 23 個測試程式）在一般與 LTO 編譯下全部通過。已在真正的 Arduino Uno 上驗證。下面組合語言實驗中的時間數字是在模擬器上量的。見[限制](#限制)。
 
 ---
 
@@ -85,7 +85,7 @@ void loop() {}
 | `xTaskDelayUntil(&last, inc)` | 阻塞到距上次喚醒固定週期後，不會累積誤差 |
 | `taskYIELD()` | 讓同等或更高優先權的就緒 task 執行 |
 | `vTaskSuspend(task)` / `vTaskResume(task)` | 暫停或恢復 task（suspend 傳 `NULL` 代表目前的 task） |
-| `vTaskDelete(task)` | 移除 task（`NULL` 代表目前的 task） |
+| `vTaskDelete(task)` | 移除別的 task（`NULL` 代表目前的 task，這時只是暫停，位置不會釋放） |
 | `xTaskGetTickCount()` | 目前的 tick 計數 |
 | `xTaskGetCurrentTaskHandle()` | 執行中 task 的 handle |
 | `uxTaskGetStackHighWaterMark(task)` | 到目前為止 stack 剩餘的最小 byte 數（`NULL` 代表目前的 task） |
@@ -109,6 +109,16 @@ void loop() {}
 | 靜態 RAM（data + bss） | 1394 B | 1758 B |
 | 每個 task 的 TCB | 19 B | 46 B |
 | tick 解析度 | 1 ms | 16 ms（watchdog tick） |
+
+### 在真正的 Arduino Uno 上實測
+
+`test/bench/bench_main.c` 在 Uno（16 MHz、v0.3.0、`-Os` + LTO）上執行，其餘 task 暫停時每次 context switch 的 cycle 數。模擬器的結果與實機相差在 1 cycle 以內（123 / 241 / 246 / 251）。
+
+| 可執行的 task 數 | 1 | 2 | 3 | 4 |
+| --- | ---: | ---: | ---: | ---: |
+| `taskYIELD`（含挑選下一個 task） | 124 cyc (7.7 µs) | 241 cyc (15.0 µs) | 246 cyc (15.3 µs) | 252 cyc (15.7 µs) |
+
+`taskENTER_CRITICAL` + `taskEXIT_CRITICAL`：17 cycle。`xTaskGetTickCount`：19 cycle。一個只在迴圈裡呼叫 `taskYIELD()` 的 task，stack 用量最高 40 byte（含 21 byte 的初始 context）。
 
 LiteRTOS 在 flash、RAM 與 TCB 都比較小。FreeRTOS 的預設（非最小）設定更大，`test/bench/report.py` 可以重現包含預設設定的表格。
 
@@ -142,6 +152,7 @@ context switch 本身與臨界區巨集本來就是行內組合語言。
 * 只有協作式排程，沒有搶佔，也沒有時間片。
 * 只能靜態建立 task，最多 `LITERTOS_MAX_TASKS`（預設 4）個。
 * 還沒有佇列、semaphore、mutex、軟體 timer、event group。
+* 不是可直接替換 FreeRTOS 的版本：只有上面列出的函式，`vTaskRestart` 是 LiteRTOS 的擴充。依賴搶佔、佇列等 FreeRTOS 功能的程式需要修改。
 * 通知只帶一個位元組（8 個事件位元）、沒有逾時，比 FreeRTOS 的 `xTaskNotifyWait` 簡單（名稱相同，簽章不同）。
 * tick 來自 `millis()`，中斷被關閉太久時會不準。
 * 只支援 ATmega328P（Arduino Uno）。
