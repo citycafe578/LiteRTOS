@@ -113,6 +113,7 @@ extern "C" {
     void vTaskResume(TaskHandle_t task);
     void xTaskNotifyWait(TaskHandle_t task, uint8_t *val);
     void xTaskNotifyGiveFromISR(TaskHandle_t task, uint8_t bitMask);
+    void vTaskRestart(TaskHandle_t task);
 
 #ifdef __cplusplus
 }

@@ -18,51 +18,88 @@ static StackType_t *schedulerSP = NULL;
 
 static uint8_t criticalNesting = 0;
 static uint8_t criticalSavedSREG = 0;
+static volatile uint8_t readyMask = 0, blockedMask = 0;
+static bool prioUniform = true;
 
 static TickType_t getTickCountInternal(void){
     return (TickType_t)millis();
 }
 
-static bool isRunable(const LiteRTOS_TCB *task, TickType_t now){
-    switch(task -> state){
-        case LITERTOS_TASK_READY:
-            return true;
-        case LITERTOS_TASK_BLOCKED:
-            return (TickType_t)(now - (task -> delayStart)) >= (task -> delayTicks);
-        case LITERTOS_TASK_SUSPENDED:
-        case LITERTOS_TASK_WAITING:
-            return false;
-        default:
-            return false;
+static void setState(LiteRTOS_TCB *task, uint8_t newState){
+    const uint8_t sreg = SREG;
+    cli();
+    const uint8_t bit = (uint8_t)(1U << task->slot);
+    uint8_t ready = readyMask & (uint8_t)~bit;
+    uint8_t blocked = blockedMask & (uint8_t)~bit;
+    if(newState == LITERTOS_TASK_READY || newState == LITERTOS_TASK_RESTART){
+        ready |= bit;
+    }else if(newState == LITERTOS_TASK_BLOCKED){
+        blocked |= bit;
     }
+    task->state = newState;
+    readyMask = ready;
+    blockedMask = blocked;
+    SREG = sreg;
 }
 
-static LiteRTOS_TCB *pickNext(TickType_t now){
-    LiteRTOS_TCB *best = NULL;
-    UBaseType_t bestInd = 0;
-    const UBaseType_t start = (UBaseType_t)(lastRunIndex + 1);
-    for(UBaseType_t n = 0; n < taskCount; n++){
-        UBaseType_t i = (UBaseType_t)(start + n);
-        if(i >= taskCount){
-            i = (UBaseType_t)(i - taskCount);
-        }
-        LiteRTOS_TCB *task = taskList[i];
+static uint8_t lowestBit(uint8_t m){
+    uint8_t i = 0;
+    while(!(m & 1U)){
+        m = (uint8_t)(m >> 1);
+        i++;
+    }
+    return i;
+}
 
-        if(!isRunable(task,now)){
-            continue;
-        }
+static LiteRTOS_TCB *pickNext(void){
+    uint8_t cand = readyMask;
+    const uint8_t sleeping = blockedMask;
 
-        if(best == NULL || task -> priority > best -> priority){
-            best = task;
-            bestInd = i;
+    if(sleeping != 0){
+        const TickType_t now = getTickCountInternal();
+        uint8_t m = sleeping;
+        while(m != 0){
+            const uint8_t i = lowestBit(m);
+            m = (uint8_t)(m & (uint8_t)(m - 1));
+            const LiteRTOS_TCB *task = taskList[i];
+            if((TickType_t)(now - (task -> delayStart)) >= (task -> delayTicks)){
+                cand |= (uint8_t)(1U << i);
+            }
         }
     }
 
-    if(best != NULL){
-        lastRunIndex = bestInd;
+    if(cand == 0){
+        return NULL;
     }
-    
-    return best;
+
+    // 位置 >= start 的先，再繞回去
+    const uint8_t start = (uint8_t)(lastRunIndex + 1);
+    const uint8_t after = (uint8_t)(cand & (uint8_t)(0xFFU << start));
+    uint8_t best;
+
+    if(prioUniform){
+        best = lowestBit((after != 0)? after : cand);
+    }else{
+        UBaseType_t bestPrio = 0;
+        bool have = false;
+        best = 0;
+        for(uint8_t pass = 0; pass < 2; pass++){
+            uint8_t m = (pass == 0)? after : (uint8_t)(cand & (uint8_t)~after);
+            while(m != 0){
+                const uint8_t i = lowestBit(m);
+                m = (uint8_t)(m & (uint8_t)(m - 1));
+                const UBaseType_t prio = taskList[i] -> priority;
+                if(!have || prio > bestPrio){
+                    have = true;
+                    best = i;
+                    bestPrio = prio;
+                }
+            }
+        }
+    }
+
+    lastRunIndex = best;
+    return taskList[best];
 }
 
 static inline void contextSwitch(StackType_t **saveSP, StackType_t *newSP){
@@ -75,21 +112,63 @@ static void switchToScheduler(void){
     contextSwitch(&currentTask -> topOfStack, schedulerSP);
 }
 
+static void prvResetTask(LiteRTOS_TCB *tcb);
+static void reschedule(void){
+    LiteRTOS_TCB *self = currentTask;
+    if(self == NULL){
+        return;
+    }
+    LiteRTOS_TCB *next = pickNext();
+    if(next == NULL){
+        switchToScheduler();
+        return;
+    }
+    if(next == self){
+        if(self -> state == LITERTOS_TASK_RESTART){
+            switchToScheduler();
+        }else if(self -> state != LITERTOS_TASK_READY){
+            setState(self, LITERTOS_TASK_READY);
+        }
+        return;
+    }
+    if(next -> state == LITERTOS_TASK_RESTART){
+        prvResetTask(next);
+    }
+    if(next -> state != LITERTOS_TASK_READY){
+        setState(next, LITERTOS_TASK_READY);
+    }
+    currentTask = next;
+    contextSwitch(&self -> topOfStack, next -> topOfStack);
+}
+
 static void blockCurrenFor(TickType_t ticks){
     currentTask -> delayStart = getTickCountInternal();
     currentTask -> delayTicks = ticks;
-    currentTask -> state = LITERTOS_TASK_BLOCKED;
-    switchToScheduler();
+    setState(currentTask, LITERTOS_TASK_BLOCKED);
+    reschedule();
 }
 
 static void taskEntry(void){
     LiteRTOS_TCB *self = currentTask;
     self -> taskCode(self -> taskParameters);
-    self -> state = LITERTOS_TASK_SUSPENDED;
+    setState(self, LITERTOS_TASK_SUSPENDED);
     while(1){
         contextSwitch(&self -> topOfStack, schedulerSP);
     }
 }
+
+static void prvResetTask(LiteRTOS_TCB *tcb){
+    for(configSTACK_DEPTH_TYPE i = 0; i < tcb->stackDepth; i++){
+        tcb->stackBase[i] = LITERTOS_STACK_FILL;
+    }
+    tcb->delayStart  = 0;
+    tcb->delayTicks  = 0;
+    tcb->notifyValue = 0;
+    setState(tcb, LITERTOS_TASK_READY);
+    tcb->topOfStack  = LiteRTOS_portInitStack(&tcb->stackBase[tcb->stackDepth - 1], taskEntry);
+}
+
+
 
 TaskHandle_t xTaskCreateStatic(
     TaskFunction_t taskCode,
@@ -105,8 +184,8 @@ TaskHandle_t xTaskCreateStatic(
     }
 
     LiteRTOS_TCB *tcb = (LiteRTOS_TCB *)taskBuffer -> storage;
-    for(configSTACK_DEPTH_TYPE i = 0; i < stackDepth; i++){
-        stackBuffer[i] = LITERTOS_STACK_FILL;
+    if(taskCount > 0 && priority != taskList[0]->priority){
+        prioUniform = false;
     }
 
     tcb->taskCode = taskCode;
@@ -114,24 +193,26 @@ TaskHandle_t xTaskCreateStatic(
     tcb->taskParameters = taskParamters;
     tcb->stackBase = stackBuffer;
     tcb->stackDepth = stackDepth;
-    tcb->delayStart = 0;
-    tcb->delayTicks = 0;
     tcb->priority = priority;
-    tcb->state = LITERTOS_TASK_READY;
-    tcb->topOfStack = LiteRTOS_portInitStack(&stackBuffer[stackDepth - 1], taskEntry);
-
+    tcb->slot = taskCount;
     taskList[taskCount++] = tcb;
-
+    prvResetTask(tcb);
     return tcb;
 }
 
 void vTaskStartScheduler(void){
     while(1){
-        LiteRTOS_TCB *next = pickNext(getTickCountInternal());
+        LiteRTOS_TCB *next = pickNext();
         if(next == NULL){
             continue;
         }
-        next -> state = LITERTOS_TASK_READY;
+
+        if(next->state == LITERTOS_TASK_RESTART){
+            prvResetTask(next);
+        }
+        if(next -> state != LITERTOS_TASK_READY){
+            setState(next, LITERTOS_TASK_READY);
+        }
         currentTask = next;
         contextSwitch(&schedulerSP, next -> topOfStack);
         currentTask = NULL;
@@ -143,13 +224,13 @@ void vTaskDelay(TickType_t ticksToDelay){
         return;
     }
     if(ticksToDelay == 0){
-        switchToScheduler();
+        reschedule();
         return;
     }
 
     if(ticksToDelay == portMAX_DELAY){
-        currentTask -> state = LITERTOS_TASK_SUSPENDED;
-        switchToScheduler();
+        setState(currentTask, LITERTOS_TASK_SUSPENDED);
+        reschedule();
         return;
     }
     blockCurrenFor(ticksToDelay);
@@ -179,7 +260,7 @@ BaseType_t xTaskDelayUntil(TickType_t *previousWakeTime, TickType_t timeIncremen
     if(shouldDely != pdFALSE){
         blockCurrenFor((TickType_t)(timeToWake - constTickCount));
     }else{
-        switchToScheduler();
+        reschedule();
     }
 
     return shouldDely;
@@ -189,7 +270,7 @@ void vPortYield(void){
     if(currentTask == NULL){
         return;
     }
-    switchToScheduler();
+    reschedule();
 }
 
 TickType_t xTaskGetTickCount(void){
@@ -235,8 +316,8 @@ void vTaskDelete(TaskHandle_t task){
         task = currentTask;
     }
     if(task == currentTask){
-        currentTask->state = LITERTOS_TASK_SUSPENDED;
-        switchToScheduler();
+        setState(currentTask, LITERTOS_TASK_SUSPENDED);
+        reschedule();
         return;
     }
     for(UBaseType_t i = 0; i < taskCount; i++){
@@ -245,6 +326,17 @@ void vTaskDelete(TaskHandle_t task){
                 taskList[j] = taskList[j+1];
             }
             taskCount--;
+            for(UBaseType_t j = i; j < taskCount; j++){
+                taskList[j] -> slot = (uint8_t)j;
+            }
+            {
+                const uint8_t sreg = SREG;
+                const uint8_t low = (uint8_t)((1U << i) - 1U);
+                cli();
+                readyMask = (uint8_t)((readyMask & low) | ((readyMask   >> (i + 1)) << i));
+                blockedMask = (uint8_t)((blockedMask & low) | ((blockedMask >> (i + 1)) << i));
+                SREG = sreg;
+            }
             if(lastRunIndex != 0xFF){
                 if(i < lastRunIndex){
                     lastRunIndex--;
@@ -265,10 +357,10 @@ void vTaskSuspend(TaskHandle_t task){
     if(task == NULL){
         return;
     }
-    task->state = LITERTOS_TASK_SUSPENDED;
+    setState(task, LITERTOS_TASK_SUSPENDED);
 
     if(task == currentTask){
-        switchToScheduler();
+        reschedule();
     }
 }
 
@@ -279,7 +371,7 @@ void vTaskResume(TaskHandle_t task){
 
     task->delayStart = 0;
     task->delayTicks = 0;
-    task->state = LITERTOS_TASK_READY;
+    setState(task, LITERTOS_TASK_READY);
 
 }
 
@@ -290,15 +382,14 @@ void xTaskNotifyWait(TaskHandle_t task, uint8_t *val){
     if(task == NULL){
         return;
     }
-    
     vPortEnterCritical();
     const bool mustWait = (task->notifyValue == 0);
     if(mustWait){
-        task->state = LITERTOS_TASK_WAITING;
+        setState(task, LITERTOS_TASK_WAITING);
     }
     vPortExitCritical();
     if(mustWait){
-        switchToScheduler();
+        reschedule();
     }
     vPortEnterCritical();
     if(val != NULL){
@@ -314,6 +405,19 @@ void xTaskNotifyGiveFromISR(TaskHandle_t task, uint8_t bitMask){
     }
     task->notifyValue |= bitMask;
     if(task->state == LITERTOS_TASK_WAITING){
-        task->state = LITERTOS_TASK_READY;
+        setState(task, LITERTOS_TASK_READY);
+    }
+}
+
+void vTaskRestart(TaskHandle_t task){
+    if(task == NULL){
+        task = currentTask;
+    }
+    if(task == NULL){
+        return;
+    }
+    setState(task, LITERTOS_TASK_RESTART);
+    if(task == currentTask){
+        reschedule();
     }
 }

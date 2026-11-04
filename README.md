@@ -21,6 +21,7 @@ The second goal of this project is an experiment: **does replacing some C with a
 * 19-byte TCB (FreeRTOS `StaticTask_t` is 46 bytes on AVR)
 * 1 ms tick taken from Arduino `millis()`: no timer is used up
 * Context switch saves only the registers the avr-gcc ABI requires (r2–r17, r28, r29, SREG)
+* Ready-mask scheduler: the scheduler only looks at tasks that can run, and one task switches directly to the next without going through a scheduler context (up to 8 tasks)
 * Task notifications: an interrupt handler can wake a sleeping task with up to 8 event bits (`xTaskNotifyWait` / `xTaskNotifyGiveFromISR`)
 * `uxTaskGetStackHighWaterMark` for stack sizing
 * `portENTER_CRITICAL` / `portEXIT_CRITICAL` as inline assembly macros
@@ -31,7 +32,7 @@ The second goal of this project is an experiment: **does replacing some C with a
 
 **Version: v0.1.0 (early)**
 
-All 22 simavr tests pass in plain and LTO builds. It has been verified on a real Arduino Uno. The timing numbers in the assembly experiment below were measured on the simulator. See [Limitations](#limitations).
+All 28 simavr tests pass in plain and LTO builds. It has been verified on a real Arduino Uno. The timing numbers in the assembly experiment below were measured on the simulator. See [Limitations](#limitations).
 
 ---
 
@@ -69,7 +70,8 @@ Notes:
 
 * Stack depth is in **bytes** (`StackType_t` is `uint8_t`).
 * Scheduling is cooperative. A task must call `vTaskDelay`, `xTaskDelayUntil` or `taskYIELD`, or the other tasks never run. Do not call Arduino `delay()` inside a task: it blocks every task.
-* The default limit is 4 tasks (`LITERTOS_MAX_TASKS`).
+* The default limit is 4 tasks (`LITERTOS_MAX_TASKS`), at most 8.
+* The scheduler picks the next task on the calling task's own stack, so leave some headroom beyond what your own code needs. Check with `uxTaskGetStackHighWaterMark`.
 
 ---
 
@@ -89,6 +91,7 @@ Notes:
 | `uxTaskGetStackHighWaterMark(task)` | Minimum free stack bytes seen so far (`NULL` means the calling task) |
 | `xTaskNotifyWait(task, &events)` | Sleep until an interrupt or task sends a notification, then read and clear the event bits (`NULL` means the calling task). Waits forever; there is no timeout |
 | `xTaskNotifyGiveFromISR(task, bits)` | OR event bits into a task's notification and wake it if it is waiting |
+| `vTaskRestart(task)` | Reset a task to its entry function with a clean stack and notification (LiteRTOS extension, not a FreeRTOS API; `NULL` means the calling task) |
 | `taskENTER_CRITICAL()` / `taskEXIT_CRITICAL()` | Critical section, function version |
 | `portENTER_CRITICAL()` / `portEXIT_CRITICAL()` | Critical section, inline-assembly version; must be paired inside one function and must not span a blocking call |
 
@@ -102,8 +105,8 @@ Same test program (4 tasks) built for both kernels with the same flags (`-Os`, L
 
 | | LiteRTOS | FreeRTOS (minimal config) |
 | --- | ---: | ---: |
-| Flash | 5432 B | 7766 B |
-| Static RAM (data + bss) | 1390 B | 1758 B |
+| Flash | 5976 B | 7766 B |
+| Static RAM (data + bss) | 1394 B | 1758 B |
 | TCB per task | 19 B | 46 B |
 | Tick resolution | 1 ms | 16 ms (watchdog tick) |
 

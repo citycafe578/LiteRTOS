@@ -404,4 +404,145 @@ int main(void){
     xTaskCreateStatic(giver, "G", STACK, 0, 1, g_stack, &g_tcb);
     vTaskStartScheduler();
 }
+#elif TEST == 18
+/* vTaskRestart：重啟另一個 task，它的區域變數從頭開始。 */
+static volatile uint16_t shared, starts;
+static TaskHandle_t hw;
+static StaticTask_t w_tcb, c_tcb; static StackType_t w_stack[STACK], c_stack[STACK];
+static void worker(void *arg){ (void)arg; uint16_t local = 0; starts++;
+    for (;;){ local++; shared = local; vTaskDelay(10); }
+}
+static void ctl(void *arg){ (void)arg;
+    vTaskDelay(105);
+    const uint16_t before = shared;                /* 約 11 */
+    vTaskRestart(hw);
+    vTaskDelay(25);
+    const uint16_t after = shared;                 /* 重新從 1 數起，約 3 */
+    simPrint("before="); simPrintU(before); simPrint(" after="); simPrintU(after);
+    simPrint(" starts="); simPrintU(starts); simPutc('\n');
+    simResult("T18 restarting another task starts it from the beginning",
+              before >= 9 && after >= 1 && after <= 4 && starts == 2);
+    simExit();
+}
+int main(void){
+    simInit();
+    hw = xTaskCreateStatic(worker, "W", STACK, 0, 1, w_stack, &w_tcb);
+    xTaskCreateStatic(ctl, "C", STACK, 0, 1, c_stack, &c_tcb);
+    vTaskStartScheduler();
+}
+#elif TEST == 19
+/* vTaskRestart(0)：task 重啟自己，從函式開頭再跑。 */
+static volatile uint8_t starts, finished;
+static StaticTask_t s_tcb, o_tcb; static StackType_t s_stack[STACK], o_stack[STACK];
+static void selfRestarter(void *arg){ (void)arg;
+    starts++;
+    if (starts < 3){ vTaskRestart(0); }
+    finished = 1;
+    for (;;){ vTaskDelay(10); }
+}
+static void other(void *arg){ (void)arg;
+    vTaskDelay(100);
+    simResult("T19 a task can restart itself", starts == 3 && finished == 1);
+    simExit();
+}
+int main(void){
+    simInit();
+    xTaskCreateStatic(selfRestarter, "S", STACK, 0, 1, s_stack, &s_tcb);
+    xTaskCreateStatic(other, "O", STACK, 0, 1, o_stack, &o_tcb);
+    vTaskStartScheduler();
+}
+#elif TEST == 20
+/* 已經跑完（函式返回）的 task 可以被重啟。 */
+static volatile uint8_t runs;
+static TaskHandle_t hw;
+static StaticTask_t w_tcb, c_tcb; static StackType_t w_stack[STACK], c_stack[STACK];
+static void shortTask(void *arg){ (void)arg; runs++; }
+static void ctl(void *arg){ (void)arg;
+    vTaskDelay(20);
+    const uint8_t first = runs;                    /* 1：已經跑完 */
+    vTaskRestart(hw);
+    vTaskDelay(20);
+    simResult("T20 a finished task can be restarted", first == 1 && runs == 2);
+    simExit();
+}
+int main(void){
+    simInit();
+    hw = xTaskCreateStatic(shortTask, "W", STACK, 0, 1, w_stack, &w_tcb);
+    xTaskCreateStatic(ctl, "C", STACK, 0, 1, c_stack, &c_tcb);
+    vTaskStartScheduler();
+}
+#elif TEST == 21
+/* 被暫停的 task 重啟後會恢復執行，且通知被清掉。 */
+static volatile uint8_t starts, gotNotify;
+static TaskHandle_t hw;
+static StaticTask_t w_tcb, c_tcb; static StackType_t w_stack[STACK], c_stack[STACK];
+static void worker(void *arg){ (void)arg; uint8_t v = 0; starts++;
+    xTaskNotifyWait(0, &v);
+    gotNotify = 1;
+    for (;;){ vTaskDelay(10); }
+}
+static void ctl(void *arg){ (void)arg;
+    vTaskDelay(20);                                 /* worker 在等通知 */
+    vTaskSuspend(hw);
+    xTaskNotifyGiveFromISR(hw, 0x04);               /* 留下一個還沒被取走的通知 */
+    vTaskRestart(hw);
+    vTaskDelay(30);
+    /* 重啟後 worker 重新開始，通知已經被清掉，所以應該又在等，沒有往下執行 */
+    simResult("T21 restart clears pending notification and un-suspends",
+              starts == 2 && gotNotify == 0);
+    simExit();
+}
+int main(void){
+    simInit();
+    hw = xTaskCreateStatic(worker, "W", STACK, 0, 1, w_stack, &w_tcb);
+    xTaskCreateStatic(ctl, "C", STACK, 0, 1, c_stack, &c_tcb);
+    vTaskStartScheduler();
+}
+#elif TEST == 22
+/* TCB 緩衝區原本有垃圾資料（不是全 0）時，建立出來的 task 仍要是乾淨的：不能憑空有通知。 */
+static volatile uint8_t woke;
+static TaskHandle_t hw;
+static StaticTask_t w_tcb, c_tcb; static StackType_t w_stack[STACK], c_stack[STACK];
+static void worker(void *arg){ (void)arg; uint8_t v = 0;
+    xTaskNotifyWait(0, &v);
+    woke = 1;
+    for (;;){ vTaskDelay(10); }
+}
+static void ctl(void *arg){ (void)arg;
+    vTaskDelay(30);
+    simResult("T22 a task created on a dirty TCB buffer starts clean", woke == 0);
+    simExit();
+}
+int main(void){
+    simInit();
+    for (uint8_t i = 0; i < sizeof(w_tcb.storage); i++){ w_tcb.storage[i] = 0xFF; }
+    hw = xTaskCreateStatic(worker, "W", STACK, 0, 1, w_stack, &w_tcb);
+    xTaskCreateStatic(ctl, "C", STACK, 0, 1, c_stack, &c_tcb);
+    vTaskStartScheduler();
+}
+#elif TEST == 23
+/* 刪掉中間的 task 後，其餘 task 照樣輪流執行（遮罩與 slot 要跟著位移）。 */
+static volatile uint8_t ca, cb, cc;
+static TaskHandle_t hb;
+static StaticTask_t a_tcb, b_tcb, c_tcb, d_tcb; static StackType_t a_stack[STACK], b_stack[STACK], c_stack[STACK], d_stack[STACK];
+static void ta(void *arg){ (void)arg; for (;;){ ca++; vTaskDelay(1); } }
+static void tb(void *arg){ (void)arg; for (;;){ cb++; vTaskDelay(1); } }
+static void tc(void *arg){ (void)arg; for (;;){ cc++; vTaskDelay(1); } }
+static void td(void *arg){ (void)arg;
+    vTaskDelay(20);
+    vTaskDelete(hb);
+    const uint8_t b0 = cb;
+    const uint8_t a0 = ca, c0 = cc;
+    vTaskDelay(40);
+    simResult("T23 delete middle task keeps others running", cb == b0 && (uint8_t)(ca - a0) > 20 && (uint8_t)(cc - c0) > 20);
+    simExit();
+}
+int main(void){
+    simInit();
+    xTaskCreateStatic(ta, "A", STACK, 0, 1, a_stack, &a_tcb);
+    hb = xTaskCreateStatic(tb, "B", STACK, 0, 1, b_stack, &b_tcb);
+    xTaskCreateStatic(tc, "C", STACK, 0, 1, c_stack, &c_tcb);
+    xTaskCreateStatic(td, "D", STACK, 0, 1, d_stack, &d_tcb);
+    vTaskStartScheduler();
+}
 #endif

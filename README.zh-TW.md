@@ -21,6 +21,7 @@ Arduino Uno 只有 2 KB RAM、32 KB flash。我發現在 Uno 上使用 FreeRTOS 
 * TCB 只有 19 byte（FreeRTOS 在 AVR 上的 `StaticTask_t` 是 46 byte）
 * 1 ms 的 tick 取自 Arduino 的 `millis()`，不佔用任何 timer
 * context switch 只保存 avr-gcc ABI 要求的暫存器（r2–r17、r28、r29、SREG）
+* 就緒遮罩排程器：排程時只看能跑的 task，而且 task 之間直接切換，不再繞過 scheduler（最多 8 個 task）
 * task 通知：中斷處理函式可以用最多 8 個事件位元叫醒睡眠中的 task（`xTaskNotifyWait` / `xTaskNotifyGiveFromISR`）
 * `uxTaskGetStackHighWaterMark` 可用來決定 stack 大小
 * `portENTER_CRITICAL` / `portEXIT_CRITICAL` 為行內組合語言巨集
@@ -31,7 +32,7 @@ Arduino Uno 只有 2 KB RAM、32 KB flash。我發現在 Uno 上使用 FreeRTOS 
 
 **版本：v0.1.0（早期）**
 
-22 項 simavr 測試在一般與 LTO 編譯下全部通過。已在真正的 Arduino Uno 上驗證。下面組合語言實驗中的時間數字是在模擬器上量的。見[限制](#限制)。
+28 項 simavr 測試在一般與 LTO 編譯下全部通過。已在真正的 Arduino Uno 上驗證。下面組合語言實驗中的時間數字是在模擬器上量的。見[限制](#限制)。
 
 ---
 
@@ -69,7 +70,8 @@ void loop() {}
 
 * stack 大小的單位是 **byte**（`StackType_t` 是 `uint8_t`）。
 * 排程是協作式的。task 必須呼叫 `vTaskDelay`、`xTaskDelayUntil` 或 `taskYIELD`，否則其他 task 永遠不會執行。不要在 task 裡呼叫 Arduino 的 `delay()`，它會讓所有 task 一起等。
-* 預設最多 4 個 task（`LITERTOS_MAX_TASKS`）。
+* 預設最多 4 個 task（`LITERTOS_MAX_TASKS`），上限 8 個。
+* 排程器會在呼叫者自己的 stack 上挑下一個 task，所以 stack 要比你自己的程式需要的多留一些。可以用 `uxTaskGetStackHighWaterMark` 檢查。
 
 ---
 
@@ -89,6 +91,7 @@ void loop() {}
 | `uxTaskGetStackHighWaterMark(task)` | 到目前為止 stack 剩餘的最小 byte 數（`NULL` 代表目前的 task） |
 | `xTaskNotifyWait(task, &events)` | 睡到有中斷或其他 task 送來通知，醒來後讀出並清除事件位元（`NULL` 代表目前的 task）。會一直等，沒有逾時 |
 | `xTaskNotifyGiveFromISR(task, bits)` | 把事件位元 OR 進 task 的通知，若它正在等就叫醒它 |
+| `vTaskRestart(task)` | 把 task 重設回進入函式，堆疊與通知清空（LiteRTOS 擴充，非 FreeRTOS API；傳 `NULL` 代表目前的 task） |
 | `taskENTER_CRITICAL()` / `taskEXIT_CRITICAL()` | 臨界區，函式版 |
 | `portENTER_CRITICAL()` / `portEXIT_CRITICAL()` | 臨界區，行內組合語言版；必須在同一個函式內成對使用，中間不能呼叫會阻塞的函式 |
 
@@ -102,8 +105,8 @@ void loop() {}
 
 | | LiteRTOS | FreeRTOS（最小設定） |
 | --- | ---: | ---: |
-| Flash | 5432 B | 7766 B |
-| 靜態 RAM（data + bss） | 1390 B | 1758 B |
+| Flash | 5976 B | 7766 B |
+| 靜態 RAM（data + bss） | 1394 B | 1758 B |
 | 每個 task 的 TCB | 19 B | 46 B |
 | tick 解析度 | 1 ms | 16 ms（watchdog tick） |
 
